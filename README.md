@@ -38,19 +38,18 @@ This repository contains a Python script demonstrating the computation of the Fu
 ## Usage
 
 1.  **Prepare Images:**
-    * Create a directory named `images` in the same directory as the Python script.
-    * Place the two images you want to process into the `images` directory.
-    * **Important:** The script currently looks for `images/IMG_3098.jpg` and `images/IMG_3099.jpg`. You **must** either rename your images to match these exact names or modify the `cv2.imread` lines within the `if __name__ == "__main__":` block at the end of the script.
+    * Place the two images you want to process into the **same directory** as the Python script.
+    * **Important:** The script currently looks for `IMG_3098.jpg` and `IMG_3099.jpg` by default. You **must** either rename your images to match these exact names or modify the `cv2.imread` lines within the `if __name__ == "__main__":` block at the end of the script to point to your files.
 
 2.  **Run the script:**
     ```bash
     python your_script_name.py
     ```
-    (Replace `your_script_name.py` with the actual filename of the Python script).
+    (Replace `eight_point_algorithm.py` with the actual filename of the Python script).
 
 ## Input
 
-* Two image files located in the `images/` subdirectory (e.g., `images/IMG_3098.jpg` and `images/IMG_3099.jpg`). The script loads them in grayscale.
+* Two image files (e.g., `IMG_3098.jpg` and `IMG_3099.jpg`) located in the **same directory** as the Python script. The script loads them in grayscale.
 
 ## Output
 
@@ -97,14 +96,14 @@ This repository contains a Python script demonstrating the computation of the Fu
     * Returns the computed `F` and the original *inhomogeneous* points `pts1`, `pts2`.
 
 5.  **Main Execution Block (`if __name__ == "__main__":`)**:
-    * Loads the two grayscale images, checking for loading errors.
+    * Loads the two grayscale images from the current directory, checking for loading errors.
     * Calls `eight_point_algorithm` to run the pipeline.
     * Prints the resulting `F` matrix.
     * Calls `draw_epipolar_lines` to show the final bidirectional visualization.
 
 ## Notes
 
-* Remember to modify the hardcoded image paths in the script (`images/IMG_3098.jpg`, `images/IMG_3099.jpg`) or rename your files accordingly.
+* Remember to modify the hardcoded image filenames in the script (`IMG_3098.jpg`, `IMG_3099.jpg`) or rename your files accordingly. The script expects these files in the **same directory** it is run from.
 * The quality of the computed Fundamental Matrix heavily depends on the accuracy and distribution of the initial feature matches obtained from ORB and the ratio test.
 * Since this version lacks RANSAC, outliers (incorrect matches) can significantly degrade the result. Consider using images with clear features and distinct viewpoints for best results with this basic algorithm.
 * Parameters like `nfeatures` in `ORB_create` and the ratio test threshold (`0.6`) can be tuned.
