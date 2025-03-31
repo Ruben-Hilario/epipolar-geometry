@@ -118,7 +118,169 @@ def eight_point_algorithm(img1, img2):
     
     return F, pts1, pts2
 
-# Main execution
+
+
+def compute_rectification_homographies(F, pts1, pts2, img_shape):
+    """Compute homographies H1 and H2 for rectifying image pair"""
+    # Compute epipoles
+    _, _, V = np.linalg.svd(F)
+    e = V[-1]
+    e = e / e[2]  # Make homogeneous
+    
+    _, _, V = np.linalg.svd(F.T)
+    e_prime = V[-1]
+    e_prime = e_prime / e_prime[2]  # Make homogeneous
+    
+    # Compute homography H2 that maps e' to infinity (f,0,0)
+    width, height = img_shape[1], img_shape[0]
+    
+    # Translation matrix to move center to origin
+    T = np.array([
+        [1, 0, -width/2],
+        [0, 1, -height/2],
+        [0, 0, 1]
+    ])
+    
+    # Translate epipole
+    e_prime_T = T @ e_prime
+    e_prime_T = e_prime_T / e_prime_T[2]
+    
+    # Rotation matrix to move epipole to x-axis
+    alpha = 1 if e_prime_T[0] >= 0 else -1
+    d = np.sqrt(e_prime_T[0]**2 + e_prime_T[1]**2)
+    R = np.array([
+        [alpha * e_prime_T[0]/d, alpha * e_prime_T[1]/d, 0],
+        [-alpha * e_prime_T[1]/d, alpha * e_prime_T[0]/d, 0],
+        [0, 0, 1]
+    ])
+    
+    # After rotation, epipole should be at (f,0,1)
+    e_prime_R = R @ e_prime_T
+    e_prime_R = e_prime_R / e_prime_R[2]
+    f = e_prime_R[0]
+    
+    # Transformation to map (f,0,1) to infinity (f,0,0)
+    G = np.array([
+        [1, 0, 0],
+        [0, 1, 0],
+        [-1/f, 0, 1]
+    ])
+    
+    # Final H2
+    H2 = np.linalg.inv(T) @ G @ R @ T
+    
+    # Compute M matrix (F = [e]x M)
+    e_cross = np.array([
+        [0, -e[2], e[1]],
+        [e[2], 0, -e[0]],
+        [-e[1], e[0], 0]
+    ])
+    M = e_cross @ F + np.outer(e, np.array([1, 1, 1]))
+    
+    # Compute HA matrix
+    p_hat = (H2 @ M) @ pts1.T  # Transform points from image1 using H2*M
+    p_prime_hat = H2 @ pts2.T    # Transform points from image2 using H2
+    
+    # Convert to inhomogeneous coordinates
+    p_hat = p_hat[:2] / p_hat[2]
+    p_prime_hat = p_prime_hat[:2] / p_prime_hat[2]
+    
+    # Solve least squares problem for a (HA = [[a1,a2,a3],[0,1,0],[0,0,1]])
+    W = np.vstack([p_hat[0], p_hat[1], np.ones(len(pts1))]).T
+    b = p_prime_hat[0]
+    a = np.linalg.lstsq(W, b, rcond=None)[0]
+    
+    HA = np.array([
+        [a[0], a[1], a[2]],
+        [0, 1, 0],
+        [0, 0, 1]
+    ])
+    
+    # Final H1
+    H1 = HA @ H2 @ M
+    
+    return H1, H2
+
+def rectify_images(img1, img2, H1, H2):
+    """Apply rectification homographies to images"""
+    # Get image dimensions
+    h, w = img1.shape[:2]
+    
+    # Compute size of output images
+    corners1 = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+    corners2 = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+    
+    # Transform corners
+    corners1_transformed = cv2.perspectiveTransform(corners1.reshape(1, -1, 2), H1).reshape(-1, 2)
+    corners2_transformed = cv2.perspectiveTransform(corners2.reshape(1, -1, 2), H2).reshape(-1, 2)
+    
+    # Get bounding box for both images
+    all_corners = np.vstack([corners1_transformed, corners2_transformed])
+    x_min, y_min = np.floor(all_corners.min(axis=0)).astype(int)
+    x_max, y_max = np.ceil(all_corners.max(axis=0)).astype(int)
+    
+    # Compute translation to keep positive coordinates
+    translation = np.array([
+        [1, 0, -x_min],
+        [0, 1, -y_min],
+        [0, 0, 1]
+    ])
+    
+    # Adjust homographies with translation
+    H1_adj = translation @ H1
+    H2_adj = translation @ H2
+    
+    # Warp images
+    size = (x_max - x_min, y_max - y_min)
+    img1_rect = cv2.warpPerspective(img1, H1_adj, size)
+    img2_rect = cv2.warpPerspective(img2, H2_adj, size)
+    
+    return img1_rect, img2_rect
+
+def draw_rectified_epipolar_lines(img1_rect, img2_rect, pts1, pts2, H1, H2, F, num_lines=20):
+    """Draw epipolar lines on rectified images to verify they're horizontal"""
+    # Convert points to homogeneous
+    pts1_h = np.hstack([pts1, np.ones((len(pts1), 1))])
+    pts2_h = np.hstack([pts2, np.ones((len(pts2), 1))])
+    
+    # Transform points using homographies
+    pts1_rect = (H1 @ pts1_h.T).T
+    pts1_rect = pts1_rect[:, :2] / pts1_rect[:, 2, np.newaxis]
+    
+    pts2_rect = (H2 @ pts2_h.T).T
+    pts2_rect = pts2_rect[:, :2] / pts2_rect[:, 2, np.newaxis]
+    
+    # Convert to color for drawing
+    img1_color = cv2.cvtColor(img1_rect, cv2.COLOR_GRAY2BGR)
+    img2_color = cv2.cvtColor(img2_rect, cv2.COLOR_GRAY2BGR)
+    
+    # Randomly select points to display
+    indices = np.random.choice(len(pts1_rect), min(num_lines, len(pts1_rect)), replace=False)
+    pts1_selected = pts1_rect[indices]
+    pts2_selected = pts2_rect[indices]
+    
+    # Draw points and horizontal lines on image 1
+    for pt in pts1_selected:
+        y = int(pt[1])
+        cv2.line(img1_color, (0, y), (img1_rect.shape[1], y), (0, 255, 255), 1)
+        cv2.circle(img1_color, tuple(map(int, pt)), 5, (255, 0, 0), -1)
+    
+    # Draw points and horizontal lines on image 2
+    for pt in pts2_selected:
+        y = int(pt[1])
+        cv2.line(img2_color, (0, y), (img2_rect.shape[1], y), (0, 255, 255), 1)
+        cv2.circle(img2_color, tuple(map(int, pt)), 5, (255, 0, 0), -1)
+    
+    # Display results
+    plt.figure(figsize=(20, 10))
+    plt.subplot(121), plt.imshow(cv2.cvtColor(img1_color, cv2.COLOR_BGR2RGB))
+    plt.title('Rectified Image 1 with Horizontal Epipolar Lines')
+    plt.subplot(122), plt.imshow(cv2.cvtColor(img2_color, cv2.COLOR_BGR2RGB))
+    plt.title('Rectified Image 2 with Horizontal Epipolar Lines')
+    plt.tight_layout()
+    plt.show()
+
+# Update the main execution to include rectification
 if __name__ == "__main__":
     # Load images
     img1 = cv2.imread('IMG_3098.jpg', cv2.IMREAD_GRAYSCALE)
@@ -133,5 +295,26 @@ if __name__ == "__main__":
     print("Fundamental Matrix:")
     print(F)
     
-    # Draw epipolar lines visualization
+    # Draw epipolar lines visualization before rectification
     draw_epipolar_lines(img1, img2, pts1, pts2, F)
+    
+    # Compute rectification homographies
+    H1, H2 = compute_rectification_homographies(F, 
+                                              np.hstack([pts1, np.ones((len(pts1), 1))]), 
+                                              np.hstack([pts2, np.ones((len(pts2), 1))]), 
+                                              img1.shape)
+    
+    # Rectify images
+    img1_rect, img2_rect = rectify_images(img1, img2, H1, H2)
+    
+    # Draw epipolar lines after rectification (should be horizontal)
+    draw_rectified_epipolar_lines(img1_rect, img2_rect, pts1, pts2, H1, H2, F)
+    
+    # Display the rectified images side by side
+    plt.figure(figsize=(20, 10))
+    plt.subplot(121), plt.imshow(img1_rect, cmap='gray')
+    plt.title('Rectified Image 1')
+    plt.subplot(122), plt.imshow(img2_rect, cmap='gray')
+    plt.title('Rectified Image 2')
+    plt.tight_layout()
+    plt.show()
