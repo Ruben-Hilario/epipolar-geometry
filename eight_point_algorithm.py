@@ -280,11 +280,67 @@ def draw_rectified_epipolar_lines(img1_rect, img2_rect, pts1, pts2, H1, H2, F, n
     plt.tight_layout()
     plt.show()
 
+def safe_rectify(img1, img2, F, pts1, pts2):
+    try:
+        # Convert points to homogeneous
+        pts1_h = np.hstack([pts1, np.ones((len(pts1), 1))])
+        pts2_h = np.hstack([pts2, np.ones((len(pts2), 1))])
+        
+        # Compute homographies with checks
+        H1, H2 = compute_rectification_homographies(
+            F.astype(np.float64),  # Ensure double precision
+            pts1_h.astype(np.float64),
+            pts2_h.astype(np.float64),
+            img1.shape
+        )
+        
+        # Verify homographies
+        assert np.all(np.isfinite(H1)), "H1 has infinite values"
+        assert np.all(np.isfinite(H2)), "H2 has infinite values"
+        
+        # Rectify with reduced resolution if needed
+        scale = 0.5  # Adjust based on your system
+        small_img1 = cv2.resize(img1, (0,0), fx=scale, fy=scale)
+        small_img2 = cv2.resize(img2, (0,0), fx=scale, fy=scale)
+        
+        H1_scale = H1.copy()
+        H1_scale[:2,2] *= scale  # Adjust translation
+        H2_scale = H2.copy()
+        H2_scale[:2,2] *= scale
+        
+        img1_rect, img2_rect = rectify_images(small_img1, small_img2, H1_scale, H2_scale)
+        
+        return img1_rect, img2_rect
+        
+    except Exception as e:
+        print(f"Rectification failed: {str(e)}")
+        return None, None
+
+def simple_rectify(img1, img2):
+    # Example homographies (must be float32 or float64)
+    H1 = np.array([[1, 0, 0], 
+                   [0, 1, 0], 
+                   [0, 0, 1]], dtype=np.float32)  # Explicit float32
+    
+    H2 = np.array([[1, 0, 100], 
+                   [0, 1, 0], 
+                   [0, 0, 1]], dtype=np.float32)
+    
+    # Warp images
+    h, w = img1.shape
+    img1_rect = cv2.warpPerspective(img1, H1, (w, h))
+    img2_rect = cv2.warpPerspective(img2, H2, (w, h))
+    
+    return img1_rect, img2_rect
+
 # Update the main execution to include rectification
 if __name__ == "__main__":
     # Load images
     img1 = cv2.imread('IMG_3098.jpg', cv2.IMREAD_GRAYSCALE)
     img2 = cv2.imread('IMG_3099.jpg', cv2.IMREAD_GRAYSCALE)
+    # Reduce image size if needed (add at start of main)
+    img1 = cv2.resize(img1, (0,0), fx=0.5, fy=0.5)
+    img2 = cv2.resize(img2, (0,0), fx=0.5, fy=0.5)
     
     if img1 is None or img2 is None:
         raise ValueError("Could not load images! Check file paths.")
@@ -305,7 +361,9 @@ if __name__ == "__main__":
                                               img1.shape)
     
     # Rectify images
-    img1_rect, img2_rect = rectify_images(img1, img2, H1, H2)
+    #img1_rect, img2_rect = simple_rectify(img1, img2 )
+    img1_rect, img2_rect = safe_rectify(img1, img2, F, pts1, pts2)
+    #img1_rect, img2_rect = rectify_images(img1, img2, H1, H2)
     
     # Draw epipolar lines after rectification (should be horizontal)
     draw_rectified_epipolar_lines(img1_rect, img2_rect, pts1, pts2, H1, H2, F)
