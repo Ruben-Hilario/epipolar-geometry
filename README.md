@@ -27,8 +27,8 @@ This repository contains a Python script demonstrating the computation of the Fu
 
 1.  **Clone the repository (optional):**
     ```bash
-    git clone <your-repo-url>
-    cd <your-repo-directory>
+    git clone https://github.com/Ruben-Hilario/epipolar-geometry.git
+    cd epipolar-geometry
     ```
 2.  **Install dependencies:**
     ```bash
@@ -43,10 +43,8 @@ This repository contains a Python script demonstrating the computation of the Fu
 
 2.  **Run the script:**
     ```bash
-    python your_script_name.py
+    python eight_point_algorithm.py
     ```
-    (Replace `eight_point_algorithm.py` with the actual filename of the Python script).
-
 ## Input
 
 * Two image files (e.g., `IMG_3098.jpg` and `IMG_3099.jpg`) located in the **same directory** as the Python script. The script loads them in grayscale.
